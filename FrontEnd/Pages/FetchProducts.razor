@@ -1,0 +1,80 @@
+@page "/fetchproducts"
+@inject ProductService productService
+
+<h3>Product List</h3>
+
+<ul>
+    @if (!isLoading && products != null)
+    {
+        foreach (var product in products)
+        {
+            <li>@product.Name - $@product.Price</li>
+        }
+    }
+    else
+    {
+        <li>No products available or still loading...</li>
+    }
+</ul>
+
+@code {
+    [Inject] private HttpClient httpClient { get; set; } = default!;
+    private Product[]? products;
+    private string errorMessage = string.Empty;
+
+    private bool isLoading = true;
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            isLoading = true;
+            products = await productService.GetProductsAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task FetchProductsAsync() //Copilot helped optimize this method and added the error handling logic.
+    {
+        httpClient.Timeout = TimeSpan.FromSeconds(30); // Set timeout for the request
+
+        try
+        {
+            // Call the API endpoint
+           var response = await httpClient.GetAsync("http://localhost:5160/api/productlist"); //Copilot helped me figure out that I had the wrong port number here. I was using my frontend port number instead of the backend port number. Small mistake but it was causing headaches and Copilot found it and fixed it.
+            // Check for valid response status
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = $"Error: {response.StatusCode} - {response.ReasonPhrase}";
+                return;
+            }
+
+            // Read and deserialize the JSON response
+            var json = await response.Content.ReadAsStringAsync();
+            products = System.Text.Json.JsonSerializer.Deserialize<Product[]>(json, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            // Check for null or unexpected data
+            if (products == null || !products.Any())
+            {
+                errorMessage = "No products found in the response.";
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage = "Request timed out. Please try again later.";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            errorMessage = "Failed to parse response. Ensure the API returns valid JSON.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An unexpected error occurred: {ex.Message}";
+        }
+    }
+}
